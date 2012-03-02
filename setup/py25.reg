@@ -1,0 +1,16 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Python]
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Python\PythonCore]
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Python\PythonCore\2.5]
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Python\PythonCore\2.5\Help]
+@=""
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Python\PythonCore\2.5\Help\Pythonwin Reference]
+@="C:\\mozilla-build\\python25\\Lib\\site-packages\\PyWin32.chm"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Python\PythonCore\2.5\InstallPath]
+@="C:\\mozilla-build\\python25"

@@ -1,0 +1,26 @@
+; Example configuration for a functional test-run
+;
+; Possible platforms: linux, linux64, mac, win32, win64
+;
+
+[testrun]
+application=firefox
+directory=5.0
+script=functional
+
+[linux]
+platform=linux
+5.0#1=fi
+5.0=en-US
+
+[mac]
+platform=mac
+5.0=en-US
+
+[win2000]
+platform=win32
+5.0=fr
+
+[winxp]
+platform=win32
+5.0=en-US pl

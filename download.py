@@ -49,7 +49,8 @@ APPLICATIONS = ['firefox', 'thunderbird']
 
 BUILD_TYPES = {'release': scraper.ReleaseScraper,
                'candidate': scraper.ReleaseCandidateScraper,
-               'daily': scraper.DailyScraper }
+               'daily': scraper.DailyScraper,
+               'tinderbox': scraper.TinderboxScraper }
 
 
 def main():
@@ -75,7 +76,8 @@ def main():
                       default=None,
                       type="int",
                       metavar='BUILD_NUMBER',
-                      help='Number of the build (for candidate and daily builds)')
+                      help='Number of the build (for candidate, daily, '
+                           'and tinderbox builds)')
     parser.add_option('--locale', '-l',
                       dest='locale',
                       default='en-US',
@@ -129,15 +131,23 @@ def main():
                      help='Date of the build, default: latest build')
     parser.add_option_group(group)
 
+    # Option group for tinderbox builds
+    group = OptionGroup(parser, "Tinderbox builds",
+                        "Extra options for tinderbox builds.")
+    group.add_option('--debug-build',
+                     dest='debug_build',
+                     action="store_true",
+                     help="Download a debug build")
+    parser.add_option_group(group)
+
     # TODO: option group for nightly builds
     (options, args) = parser.parse_args()
 
     # Check for required options and arguments
     # Note: Will be optional when ini file support has been landed
-    if not options.type == "daily" and not options.version:
-        parser.error("The version of the application to download has not been specified.")
-    if not options.platform:
-        parser.error("The platform of the application to download has not been specified.")
+    if not options.type in ['daily', 'tinderbox'] \
+       and not options.version:
+        parser.error('The version of the application to download has not been specified.')
 
     # Instantiate scraper and download the build
     scraper_keywords = {'application': options.application,
@@ -152,7 +162,13 @@ def main():
                            'branch': options.branch,
                            'build_number': options.build_number,
                            'build_id': options.build_id,
-                           'date': options.date }}
+                           'date': options.date},
+                       'tinderbox': {
+                           'branch': options.branch,
+                           'build_number': options.build_number,
+                           'date': options.date,
+                           'debug_build': options.debug_build}
+                       }
 
     kwargs = scraper_keywords.copy()
     kwargs.update(scraper_options.get(options.type, {}))

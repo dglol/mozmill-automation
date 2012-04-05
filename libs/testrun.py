@@ -51,7 +51,6 @@ import zipfile
 import application
 import install
 import mozmill
-import mozrunner
 import rdf_parser
 import report
 import repository
@@ -161,11 +160,7 @@ class TestRun(object):
     def _generate_custom_report(self):
         if self.options.junit_file:
             filename = self._get_unique_filename(self.options.junit_file)
-            custom_report = self._mozmill.mozmill.get_report()
-
-            if self._mozmill.report_callback:
-                custom_report = self._mozmill.report_callback(custom_report)
-
+            custom_report = self.update_report(self._mozmill.mozmill.get_report())
             report.JUnitReport(custom_report, filename)
 
     def _get_binaries(self):
@@ -318,10 +313,8 @@ class TestRun(object):
         self._mozmill.options.binary = self._application
         self._mozmill.options.logfile = self.options.logfile
         self._mozmill.options.profile = self.options.profile
-        self._mozmill.options.report = self.options.report_url
         self._mozmill.options.showall = True
         self._mozmill.tests = [os.path.join(self.repository_path, self.test_path)]
-        self._mozmill.report_callback = self.update_report
 
         if self.options.port:
             self._mozmill.mozmill.jsbridge_port = self.options.port
@@ -394,6 +387,7 @@ class TestRun(object):
                     self.prepare_binary(binary)
                     self.prepare_repository()
                     self.run_tests()
+                    self.send_report(self.options.report_url)
                 except Exception, e:
                     print str(e)
                     self.last_exception = e
@@ -413,6 +407,12 @@ class TestRun(object):
             # If a test has been failed ensure that we exit with status 2
             if self.last_failed_tests:
                 raise TestFailedException()
+
+    def send_report(self, report_url):
+        """ Send the report to a CouchDB instance """
+
+        report = self.update_report(self._mozmill.mozmill.get_report())
+        return self._mozmill.mozmill.send_report(report, report_url)
 
     def update_report(self, report):
         """ Customize the report data. """

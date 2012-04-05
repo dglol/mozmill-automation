@@ -37,12 +37,14 @@
 """Module to handle downloads for different types of Firefox and Thunderbird builds."""
 
 
-from datetime import datetime
+from datetime import datetime, tzinfo, timedelta
 from HTMLParser import HTMLParser
 import os
 import re
 import sys
 import urllib
+
+import mozinfo
 
 
 # Base URL for the path to all builds
@@ -106,12 +108,16 @@ class DirectoryParser(HTMLParser):
 class MozillaScraper(object):
     """Generic class to download an application from the Mozilla server"""
 
-    def __init__(self, directory, platform, version,
+    def __init__(self, directory, version, platform=None,
                  application='firefox', locale='en-US'):
+
+        # Private properties for caching
+        self._target = None
+        self._binary = None
 
         self.directory = directory
         self.locale = locale
-        self.platform = platform
+        self.platform = platform or self.detect_platform()
         self.version = version
 
         # build the base URL
@@ -123,22 +129,26 @@ class MozillaScraper(object):
     def binary(self):
         """Return the name of the build"""
 
-        # Retrieve all entries from the remote virtual folder
-        parser = DirectoryParser(self.path)
-        if not parser.entries:
-            raise NotFoundException('No entries found', self.path)
+        if self._binary is None:
+            # Retrieve all entries from the remote virtual folder
+            parser = DirectoryParser(self.path)
+            if not parser.entries:
+                raise NotFoundException('No entries found', self.path)
+    
+            # Download the first matched directory entry
+            pattern = re.compile(self.binary_regex, re.IGNORECASE)
+            for entry in parser.entries:
+                try:
+                    self._binary = pattern.match(entry).group()
+                    break
+                except:
+                    # No match, continue with next entry
+                    continue
 
-        # Download the first matched directory entry
-        pattern = re.compile(self.binary_regex, re.IGNORECASE)
-        for entry in parser.entries:
-            try:
-                binary = pattern.match(entry).group()
-                return binary
-            except:
-                # No match, continue with next entry
-                continue
-
-        raise NotFoundException("Binary not found in folder", self.path)
+        if self._binary is None:
+            raise NotFoundException("Binary not found in folder", self.path)
+        else:
+            return self._binary
 
 
     @property
@@ -193,13 +203,26 @@ class MozillaScraper(object):
     def target(self):
         """Return the target file name of the build"""
 
-        return os.path.join(self.directory, self.build_filename(self.binary))
+        if self._target is None:
+            self._target = os.path.join(self.directory,
+                                        self.build_filename(self.binary))
+        return self._target
 
 
     def build_filename(self, binary):
         """Return the proposed filename with extension for the binary"""
 
         raise NotImplementedError(sys._getframe(0).f_code.co_name)
+
+
+    def detect_platform(self):
+        """Detect the current platform"""
+
+        # For Mac and Linux 32bit we do not need the bits appended
+        if mozinfo.os == 'mac' or (mozinfo.os == 'linux' and mozinfo.bits == 32):
+            return mozinfo.os
+        else:
+            return "%s%d" % (mozinfo.os, mozinfo.bits)
 
 
     def download(self):
@@ -484,3 +507,207 @@ class ReleaseCandidateScraper(ReleaseScraper):
                 print "Signed build has not been found. Falling back to unsigned build."
                 self.unsigned = True
                 MozillaScraper.download(self)
+
+
+class TinderboxScraper(MozillaScraper):
+    """Class to download a tinderbox build from the Mozilla server.
+
+    There are two ways to specify a unique build:
+    1. If the date (%Y-%m-%d) is given and build_number is given where
+       the build_number is the index of the build on the date
+    2. If the build timestamp (UNIX) is given, and matches a specific build.
+    """
+
+    def __init__(self, branch='mozilla-central', build_number=None, date=None,
+                 debug_build=False, *args, **kwargs):
+        MozillaScraper.__init__(self, *args, **kwargs)
+
+        self.branch = branch
+        self.debug_build = debug_build
+        self.locale_build = self.locale != 'en-US'
+        self.timestamp = None
+
+        # Currently any time in RelEng is based on the Pacific time zone.
+        self.timezone = PacificTimezone();
+
+        # Internally we access builds via index
+        if build_number is not None:
+            self.build_index = int(build_number) - 1
+        else:
+            self.build_index = None
+
+        if date is not None:
+            try:
+                self.date = datetime.fromtimestamp(float(date), self.timezone)
+                self.timestamp = date
+            except:
+                self.date = datetime.strptime(date, '%Y-%m-%d')
+        else:
+            self.date = None
+
+        # For localized builds we do not have to retrieve the list of builds
+        # because only the last build is available
+        if not self.locale_build:
+            self.builds, self.build_index = self.get_build_info(self.build_index)
+    
+            try:
+                self.timestamp = self.builds[self.build_index]
+            except:
+                raise NotFoundException("Specified sub folder cannot be found",
+                                        self.base_url + self.monthly_build_list_regex)
+
+
+    @property
+    def binary_regex(self):
+        """Return the regex for the binary"""
+
+        regex_base_name = r'^%(APP)s-.*\.%(LOCALE)s\.'
+        regex_suffix = {'linux': r'.*\.tar\.bz2$',
+                        'linux64': r'.*\.tar\.bz2$',
+                        'mac': r'.*\.dmg$',
+                        'mac64': r'.*\.dmg$',
+                        'win32': r'.*\.exe$',
+                        'win64': r'.*\.exe$'}
+
+        regex = regex_base_name + regex_suffix[self.platform]
+
+        return regex % {'APP': self.application,
+                        'LOCALE': self.locale}
+
+
+    def build_filename(self, binary):
+        """Return the proposed filename with extension for the binary"""
+
+        return '%(TIMESTAMP)s%(BRANCH)s%(DEBUG)s-%(NAME)s' % {
+                   'TIMESTAMP': self.timestamp + '-' if self.timestamp else '',
+                   'BRANCH': self.branch,
+                   'DEBUG': '-debug' if self.debug_build else '',
+                   'NAME': binary}
+
+
+    @property
+    def build_list_regex(self):
+        """Return the regex for the folder which contains the list of builds"""
+
+        regex = 'tinderbox-builds/%(BRANCH)s-%(PLATFORM)s%(L10N)s%(DEBUG)s'
+
+        return regex % {'BRANCH': self.branch,
+                        'PLATFORM': '' if self.locale_build else self.platform_regex,
+                        'L10N': 'l10n' if self.locale_build else '',
+                        'DEBUG': '-debug' if self.debug_build else ''}
+
+
+    def date_matches(self, timestamp):
+        """Determines whether the timestamp date is equal to the argument date"""
+
+        if self.date is None:
+            return False
+
+        timestamp = datetime.fromtimestamp(float(timestamp), self.timezone)
+        if self.date.date() == timestamp.date():
+            return True
+        
+        return False
+
+
+    @property
+    def date_validation_regex(self):
+        """Return the regex for a valid date argument value"""
+
+        return r'^\d{4}-\d{1,2}-\d{1,2}$|^\d+$'
+
+
+    def detect_platform(self):
+        """Detect the current platform"""
+
+        platform = MozillaScraper.detect_platform(self)
+
+        # On OS X we have to special case the platform detection code and fallback
+        # to 64 bit builds for the en-US locale
+        if mozinfo.os == 'mac' and self.locale == 'en-US' and mozinfo.bits == 64:
+            platform = "%s%d" % (mozinfo.os, mozinfo.bits)
+
+        return platform
+
+
+    def get_build_info(self, build_index=None):
+        url = '/'.join([self.base_url, self.build_list_regex])
+
+        print 'Retrieving list of builds from %s' % url
+
+        # If a timestamp is given, retrieve just that build
+        regex = '^' + self.timestamp + '$' if self.timestamp else r'^\d+$'
+
+        parser = DirectoryParser(url)
+        parser.entries = parser.filter(regex)
+
+        # If date is given, retrieve the subset of builds on that date
+        if self.date is not None:
+            parser.entries = filter(self.date_matches, parser.entries)
+
+        if not parser.entries:
+            message = 'No builds have been found'
+            raise NotFoundException(message, url)
+
+        # If no index has been given, set it to the last build of the day.
+        if build_index is None:
+            build_index = len(parser.entries) - 1
+
+        return (parser.entries, build_index)
+
+
+    @property
+    def path_regex(self):
+        """Return the regex for the path"""
+
+        if self.locale_build:
+            return self.build_list_regex
+
+        return '/'.join([self.build_list_regex, self.builds[self.build_index]])
+
+
+    @property
+    def platform_regex(self):
+        """Return the platform fragment of the URL"""
+
+        PLATFORM_FRAGMENTS = {'linux': 'linux',
+                              'linux64': 'linux64',
+                              'mac': 'macosx',
+                              'mac64': 'macosx64',
+                              'win32': 'win32',
+                              'win64': 'win64'}
+
+        return PLATFORM_FRAGMENTS[self.platform]
+
+
+class PacificTimezone(tzinfo):
+    """Class to set the timezone to PST/PDT and automatically adjusts
+    for daylight saving.
+    """
+
+    def utcoffset(self, dt):
+        return timedelta(hours=-8) + self.dst(dt)
+
+
+    def tzname(self, dt):
+        return "Pacific"
+
+
+    def dst(self, dt):
+        # Daylight saving starts on the second Sunday of March at 2AM standard
+        dst_start_date = self.first_sunday(dt.year, 3) + timedelta(days=7) \
+                                                       + timedelta(hours=2)
+        # Daylight saving ends on the first Sunday of November at 2AM standard
+        dst_end_date = self.first_sunday(dt.year, 11) + timedelta(hours=2)
+
+        if dst_start_date <= dt.replace(tzinfo=None) < dst_end_date:
+            return timedelta(hours=1)
+        else:
+            return timedelta(0)
+
+
+    def first_sunday(self, year, month):
+        date = datetime(year, month, 1, 0)
+        days_until_sunday = 6 - date.weekday()
+
+        return date + timedelta(days=days_until_sunday)

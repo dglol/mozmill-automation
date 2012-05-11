@@ -1,0 +1,23 @@
+; Example configuration for an update test-run
+;
+; Possible platforms: linux, linux64, mac, win32, win64
+;
+
+[testrun]
+application=firefox
+directory=5.0
+script=update
+
+[mac]
+platform=mac
+4.0.1=en-US
+4.0.1#1=de
+4.0=en-US ja-JP-mac
+
+[win2000]
+platform=win32
+4.0.1=en-US fr
+
+[linux]
+platform=linux
+4.0.1=en-US pl

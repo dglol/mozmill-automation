@@ -18,9 +18,9 @@
 # the Initial Developer. All Rights Reserved.
 #
 # Contributor(s):
-# Henrik Skupin <hskupin@mozilla.com>
-# Dave Hunt <dhunt@mozilla.com>
-# Aaron Train <atrain@mozilla.com>
+#   Henrik Skupin <hskupin@mozilla.com>
+#   Dave Hunt <dhunt@mozilla.com>
+#   Aaron Train <atrain@mozilla.com>
 #
 # Alternatively, the contents of this file may be used under the terms of
 # either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -160,8 +160,7 @@ class TestRun(object):
     def _generate_custom_report(self):
         if self.options.junit_file:
             filename = self._get_unique_filename(self.options.junit_file)
-            custom_report = self.update_report(self._mozmill.mozmill.get_report())
-            report.JUnitReport(custom_report, filename)
+            report.JUnitReport(self._mozmill.mozmill.get_report(), filename)
 
     def _get_binaries(self):
         """ Returns the list of binaries to test. """
@@ -730,11 +729,11 @@ class RemoteTestRun(TestRun):
 
         # Don't execute non-restart tests until we have tests available
         #try:
-        # self.restart_tests = False
-        # self.test_path = os.path.join('tests', 'remote')
-        # TestRun.run_tests(self)
+        #    self.restart_tests = False
+        #    self.test_path = os.path.join('tests', 'remote')
+        #    TestRun.run_tests(self)
         #except Exception, e:
-        # print str(e)
+        #    print str(e)
 
         try:
             self.restart_tests = True
@@ -777,7 +776,7 @@ class UpdateTestRun(TestRun):
 
     def build_wiki_entry(self, result):
         """ Until we show results on the dashboard create a wiki like output
-format for data from the first and last update performed """
+            format for data from the first and last update performed """
 
         first_update = result["updates"][0]
         last_update = result["updates"][-1]

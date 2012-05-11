@@ -18,7 +18,7 @@
 # the Initial Developer. All Rights Reserved.
 #
 # Contributor(s):
-#   Henrik Skupin <hskupin@mozilla.com>
+# Henrik Skupin <hskupin@mozilla.com>
 #
 # Alternatively, the contents of this file may be used under the terms of
 # either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -48,7 +48,7 @@ import mozinfo
 
 
 # Base URL for the path to all builds
-BASE_URL = 'https://ftp.mozilla.org/pub/mozilla.org'
+BASE_URL = 'http://stage.mozilla.org/pub/mozilla.org'
 
 PLATFORM_FRAGMENTS = {'linux': 'linux-i686',
                       'linux64': 'linux-x86_64',
@@ -459,7 +459,7 @@ class ReleaseCandidateScraper(ReleaseScraper):
     @property
     def candidate_build_list_regex(self):
         """Return the regex for the folder which contains the builds of
-           a candidate build."""
+a candidate build."""
 
         # Regex for possible builds for the given date
         return r'nightly/%(VERSION)s-candidates/' % {
@@ -512,11 +512,11 @@ class ReleaseCandidateScraper(ReleaseScraper):
 class TinderboxScraper(MozillaScraper):
     """Class to download a tinderbox build from the Mozilla server.
 
-    There are two ways to specify a unique build:
-    1. If the date (%Y-%m-%d) is given and build_number is given where
-       the build_number is the index of the build on the date
-    2. If the build timestamp (UNIX) is given, and matches a specific build.
-    """
+There are two ways to specify a unique build:
+1. If the date (%Y-%m-%d) is given and build_number is given where
+the build_number is the index of the build on the date
+2. If the build timestamp (UNIX) is given, and matches a specific build.
+"""
 
     def __init__(self, branch='mozilla-central', build_number=None, date=None,
                  debug_build=False, *args, **kwargs):
@@ -682,8 +682,8 @@ class TinderboxScraper(MozillaScraper):
 
 class PacificTimezone(tzinfo):
     """Class to set the timezone to PST/PDT and automatically adjusts
-    for daylight saving.
-    """
+for daylight saving.
+"""
 
     def utcoffset(self, dt):
         return timedelta(hours=-8) + self.dst(dt)

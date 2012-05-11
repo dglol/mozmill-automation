@@ -18,9 +18,9 @@
 # the Initial Developer. All Rights Reserved.
 #
 # Contributor(s):
-#   Henrik Skupin <hskupin@mozilla.com>
-#   Dave Hunt <dhunt@mozilla.com>
-#   Aaron Train <atrain@mozilla.com>
+# Henrik Skupin <hskupin@mozilla.com>
+# Dave Hunt <dhunt@mozilla.com>
+# Aaron Train <atrain@mozilla.com>
 #
 # Alternatively, the contents of this file may be used under the terms of
 # either the GNU General Public License Version 2 or later (the "GPL"), or
@@ -50,7 +50,7 @@ import zipfile
 
 import application
 import install
-import mozmill_wrapper
+import mozmill
 import rdf_parser
 import report
 import repository
@@ -61,14 +61,14 @@ MOZMILL_TESTS_REPOSITORIES = {
     'thunderbird' : "http://hg.mozilla.org/users/bugzilla_standard8.plus.com/qa-tests/",
 }
 
-MOZMILL_WRAPPERS_CLI = {
-    'firefox' : mozmill_wrapper.MozmillWrapperCLI,
-    'thunderbird' : mozmill_wrapper.ThunderbirdMozmillWrapperCLI,
+MOZMILL_CLI = {
+    'firefox' : mozmill.CLI,
+    'thunderbird' : mozmill.ThunderbirdCLI,
 }
 
-MOZMILL_WRAPPERS_RESTART_CLI = {
-    'firefox' : mozmill_wrapper.MozmillWrapperRestartCLI,
-    'thunderbird' : mozmill_wrapper.ThunderbirdMozmillWrapperRestartCLI,
+MOZMILL_RESTART_CLI = {
+    'firefox' : mozmill.RestartCLI,
+    'thunderbird' : mozmill.ThunderbirdRestartCLI,
 }
 
 
@@ -135,6 +135,8 @@ class TestRun(object):
         for names, opts in self.parser_options.items():
             self.parser.add_option(*names, **opts)
         (self.options, self.args) = self.parser.parse_args(args)
+        # Consume the system arguments
+        del sys.argv[1:]
 
         self.binaries = self.args
         self.debug = debug
@@ -158,7 +160,8 @@ class TestRun(object):
     def _generate_custom_report(self):
         if self.options.junit_file:
             filename = self._get_unique_filename(self.options.junit_file)
-            report.JUnitReport(self._mozmill.mozmill.get_report(), filename)
+            custom_report = self.update_report(self._mozmill.mozmill.get_report())
+            report.JUnitReport(custom_report, filename)
 
     def _get_binaries(self):
         """ Returns the list of binaries to test. """
@@ -300,25 +303,23 @@ class TestRun(object):
         """ Preparation which has to be done before starting a test. """
 
         if self.restart_tests:
-            cls = MOZMILL_WRAPPERS_RESTART_CLI[self.options.application]
+            cls = MOZMILL_RESTART_CLI[self.options.application]
         else:
-            cls = MOZMILL_WRAPPERS_CLI[self.options.application]
+            cls = MOZMILL_CLI[self.options.application]
 
-        self._mozmill = cls(debug=self.debug)
-
+        self._mozmill = cls()
         self._mozmill.addons = self.addon_list
-        self._mozmill.binary = self._application
-        self._mozmill.logfile = self.options.logfile
-        self._mozmill.profile = self.options.profile
-        self._mozmill.report_callback = self.update_report
-        self._mozmill.report_url = self.options.report_url
-        self._mozmill.showall = True
+        self._mozmill.options.debug = self.debug
+        self._mozmill.options.binary = self._application
+        self._mozmill.options.logfile = self.options.logfile
+        self._mozmill.options.profile = self.options.profile
+        self._mozmill.options.showall = True
         self._mozmill.tests = [os.path.join(self.repository_path, self.test_path)]
 
         if self.options.port:
-            self._mozmill.jsbridge_port = self.options.port
+            self._mozmill.mozmill.jsbridge_port = self.options.port
         if self.timeout:
-            self._mozmill.jsbridge_timeout = self.timeout
+            self._mozmill.mozmill.jsbridge_timeout = self.timeout
 
         self.installed_addons = None
         self._mozmill.mozmill.add_listener(self.addons_event, eventType='mozmill.installedAddons')
@@ -330,7 +331,7 @@ class TestRun(object):
             path = os.path.abspath(self.options.screenshot_path)
             if not os.path.isdir(path):
                 os.makedirs(path)
-            self._mozmill.persisted["screenshotPath"] = path
+            self._mozmill.mozmill.persisted["screenshotPath"] = path
 
     def addons_event(self, obj):
         if not self.installed_addons:
@@ -353,10 +354,15 @@ class TestRun(object):
         """ Start the execution of the tests. """
 
         self.prepare_tests()
-        self._mozmill.run()
+
+        try:
+            self._mozmill.run()
+        except SystemExit:
+            # Mozmill itself calls sys.exit(1) but we do not want to exit
+            pass
 
         # Whenever a test fails it has to be marked, so we quit with the correct exit code
-        self.last_failed_tests = self.last_failed_tests or self._mozmill.fails
+        self.last_failed_tests = self.last_failed_tests or self._mozmill.mozmill.fails
 
         self._generate_custom_report()
         self.testrun_index += 1
@@ -381,6 +387,7 @@ class TestRun(object):
                     self.prepare_binary(binary)
                     self.prepare_repository()
                     self.run_tests()
+                    self.send_report(self.options.report_url)
                 except Exception, e:
                     print str(e)
                     self.last_exception = e
@@ -400,6 +407,12 @@ class TestRun(object):
             # If a test has been failed ensure that we exit with status 2
             if self.last_failed_tests:
                 raise TestFailedException()
+
+    def send_report(self, report_url):
+        """ Send the report to a CouchDB instance """
+
+        report = self.update_report(self._mozmill.mozmill.get_report())
+        return self._mozmill.mozmill.send_report(report, report_url)
 
     def update_report(self, report):
         """ Customize the report data. """
@@ -599,10 +612,10 @@ class EnduranceTestRun(TestRun):
         TestRun.prepare_tests(self)
         self._mozmill.mozmill.add_listener(self.endurance_event, eventType='mozmill.enduranceResults')
 
-        self._mozmill.persisted['endurance'] = {'delay': self.delay,
-                                                'iterations': self.options.iterations,
-                                                'entities': self.options.entities,
-                                                'restart': self.options.restart_tests}
+        self._mozmill.mozmill.persisted['endurance'] = {'delay': self.delay,
+                                                        'iterations': self.options.iterations,
+                                                        'entities': self.options.entities,
+                                                        'restart': self.options.restart_tests}
 
     def run_tests(self):
         """ Execute the endurance tests in sequence. """
@@ -626,7 +639,7 @@ class EnduranceTestRun(TestRun):
         TestRun.update_report(self, report)
 
         # update report with endurance data
-        report['endurance'] = self._mozmill.persisted['endurance']
+        report['endurance'] = self._mozmill.mozmill.persisted['endurance']
         report['endurance']['results'] = self.endurance_results
 
         blacklist = ('timestamp', 'label')
@@ -717,11 +730,11 @@ class RemoteTestRun(TestRun):
 
         # Don't execute non-restart tests until we have tests available
         #try:
-        #    self.restart_tests = False
-        #    self.test_path = os.path.join('tests', 'remote')
-        #    TestRun.run_tests(self)
+        # self.restart_tests = False
+        # self.test_path = os.path.join('tests', 'remote')
+        # TestRun.run_tests(self)
         #except Exception, e:
-        #    print str(e)
+        # print str(e)
 
         try:
             self.restart_tests = True
@@ -764,7 +777,7 @@ class UpdateTestRun(TestRun):
 
     def build_wiki_entry(self, result):
         """ Until we show results on the dashboard create a wiki like output
-            format for data from the first and last update performed """
+format for data from the first and last update performed """
 
         first_update = result["updates"][0]
         last_update = result["updates"][-1]
@@ -821,9 +834,9 @@ class UpdateTestRun(TestRun):
         self.restart_tests = True
 
         TestRun.prepare_tests(self)
-        self._mozmill.persisted["channel"] = self.channel
+        self._mozmill.mozmill.persisted["channel"] = self.channel
         if self.options.target_buildid:
-            self._mozmill.persisted["targetBuildID"] = self.options.target_buildid
+            self._mozmill.mozmill.persisted["targetBuildID"] = self.options.target_buildid
 
     def restore_binary(self):
         """ Restores the backup of the application binary. """
@@ -878,15 +891,15 @@ class UpdateTestRun(TestRun):
         except Exception, e:
             print "Execution of test-run aborted: %s" % str(e)
         finally:
-            data = self._mozmill.persisted
+            data = self._mozmill.mozmill.persisted
 
             # If a Mozmill test fails the update has to be also marked as failed
-            if self._mozmill.fails:
+            if self._mozmill.mozmill.fails:
                 data["success"] = False
 
-            data["passes"] = self._mozmill.passes
-            data["fails"] = self._mozmill.fails
-            data["skipped"] = self._mozmill.skipped
+            data["passes"] = self._mozmill.mozmill.passes
+            data["fails"] = self._mozmill.mozmill.fails
+            data["skipped"] = self._mozmill.mozmill.skipped
 
             return data
 
@@ -901,6 +914,6 @@ class UpdateTestRun(TestRun):
 
     def update_report(self, report):
       TestRun.update_report(self, report)
-      report['updates'] = self._mozmill.persisted['updates']
+      report['updates'] = self._mozmill.mozmill.persisted['updates']
 
       return report

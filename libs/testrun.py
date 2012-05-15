@@ -160,7 +160,8 @@ class TestRun(object):
     def _generate_custom_report(self):
         if self.options.junit_file:
             filename = self._get_unique_filename(self.options.junit_file)
-            report.JUnitReport(self._mozmill.mozmill.get_report(), filename)
+            custom_report = self.update_report(self._mozmill.mozmill.get_report())
+            report.JUnitReport(custom_report, filename)
 
     def _get_binaries(self):
         """ Returns the list of binaries to test. """
@@ -386,7 +387,8 @@ class TestRun(object):
                     self.prepare_binary(binary)
                     self.prepare_repository()
                     self.run_tests()
-                    self.send_report(self.options.report_url)
+                    if self.options.report_url:
+                        self.send_report(self.options.report_url)
                 except Exception, e:
                     print str(e)
                     self.last_exception = e
